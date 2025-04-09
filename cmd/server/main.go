@@ -13,90 +13,87 @@ import (
 	"unsafe"
 )
 
-type Config struct {
+type config struct {
 	ServerIP   string
 	ServerPort int
 }
 
-type ClipboardRequest struct {
+type clipboardRequest struct {
 	Data string
 }
 
+var (
+	user32           = windows.NewLazySystemDLL("user32.dll")
+	kernel32         = windows.NewLazySystemDLL("kernel32.dll")
+	openClipboard    = user32.NewProc("OpenClipboard")
+	emptyClipboard   = user32.NewProc("EmptyClipboard")
+	setClipboardData = user32.NewProc("SetClipboardData")
+	closeClipboard   = user32.NewProc("CloseClipboard")
+	globalAlloc      = kernel32.NewProc("GlobalAlloc")
+	globalLock       = kernel32.NewProc("GlobalLock")
+	globalUnlock     = kernel32.NewProc("GlobalUnlock")
+	memcpy           = kernel32.NewProc("RtlMoveMemory")
+	cfUnicodeText    = uintptr(13)
+	gmemMoveable     = uintptr(2)
+)
+
 func main() {
-	configFile, err := os.Open("config.json")
+	f, err := os.Open("config.json")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer configFile.Close()
-	var config Config
-	err = json.NewDecoder(configFile).Decode(&config)
-	if err != nil {
+	defer f.Close()
+	var cfg config
+	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
 		log.Fatal(err)
 	}
-	address := fmt.Sprintf("%s:%d", config.ServerIP, config.ServerPort)
-	ln, err := net.Listen("tcp", address)
+	addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer ln.Close()
-	fmt.Printf("Server listening on %s...\n", address)
+	log.Printf("Listening on %s...\n", addr)
 	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection:", err)
-			continue
+		if conn, err := ln.Accept(); err == nil {
+			go handle(conn)
+		} else {
+			log.Println("Accept error:", err)
 		}
-		go handleConnection(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
-	var request ClipboardRequest
-	if err := json.NewDecoder(conn).Decode(&request); err != nil {
-		fmt.Println("Error decoding request:", err)
+func handle(c net.Conn) {
+	defer c.Close()
+	var req clipboardRequest
+	if err := json.NewDecoder(c).Decode(&req); err != nil {
+		log.Println("Decode error:", err)
 		return
 	}
-	if err := setClipboardText(request.Data); err != nil {
-		fmt.Println("Error setting clipboard:", err)
+	if err := setClipboard(req.Data); err != nil {
+		log.Println("Clipboard error:", err)
 	}
 }
 
-func setClipboardText(text string) error {
-	user32 := windows.NewLazySystemDLL("user32.dll")
-	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
-	openClipboard := user32.NewProc("OpenClipboard")
-	emptyClipboard := user32.NewProc("EmptyClipboard")
-	setClipboardData := user32.NewProc("SetClipboardData")
-	closeClipboard := user32.NewProc("CloseClipboard")
-	globalAlloc := kernel32.NewProc("GlobalAlloc")
-	globalLock := kernel32.NewProc("GlobalLock")
-	globalUnlock := kernel32.NewProc("GlobalUnlock")
-	memcpy := kernel32.NewProc("RtlMoveMemory")
-	const (
-		CF_UNICODETEXT = 13
-		GMEM_MOVEABLE  = 0x0002
-	)
-	r, _, err := openClipboard.Call(0)
-	if r == 0 {
-		return fmt.Errorf("OpenClipboard failed: %v", err)
+func setClipboard(s string) error {
+	if r, _, err := openClipboard.Call(0); r == 0 {
+		return err
 	}
 	defer closeClipboard.Call()
 	emptyClipboard.Call()
-	hMem, _, err := globalAlloc.Call(GMEM_MOVEABLE, uintptr(len(text)*2+2))
-	if hMem == 0 {
-		return fmt.Errorf("GlobalAlloc failed: %v", err)
+	h, _, err := globalAlloc.Call(gmemMoveable, uintptr(len(s)*2+2))
+	if h == 0 {
+		return err
 	}
-	ptr, _, _ := globalLock.Call(hMem)
-	if ptr == 0 {
+	p, _, _ := globalLock.Call(h)
+	if p == 0 {
 		return fmt.Errorf("GlobalLock failed")
 	}
-	copyUTF16 := syscall.StringToUTF16(text)
-	memcpy.Call(ptr, uintptr(unsafe.Pointer(&copyUTF16[0])), uintptr(len(copyUTF16)*2))
-	globalUnlock.Call(hMem)
-	r, _, err = setClipboardData.Call(CF_UNICODETEXT, hMem)
-	if r == 0 {
-		return fmt.Errorf("SetClipboardData failed: %v", err)
+	utf16 := syscall.StringToUTF16(s)
+	memcpy.Call(p, uintptr(unsafe.Pointer(&utf16[0])), uintptr(len(utf16)*2))
+	globalUnlock.Call(h)
+	if r, _, err := setClipboardData.Call(cfUnicodeText, h); r == 0 {
+		return err
 	}
 	return nil
 }
