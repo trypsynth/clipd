@@ -3,13 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"golang.org/x/sys/windows"
 	"log"
 	"net"
 	"os"
 	"syscall"
 	"unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
 type Config struct {

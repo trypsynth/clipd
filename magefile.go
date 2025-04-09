@@ -38,6 +38,11 @@ func Clean() error {
 	return os.RemoveAll(binDir)
 }
 
+func Format() error {
+	fmt.Println("Formatting code...")
+	return sh("go", "fmt", "./...")
+}
+
 func sh(command string, args ...string) error {
 	cmd := exec.Command(command, args...)
 	cmd.Stdout = os.Stdout
