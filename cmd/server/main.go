@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"syscall"
@@ -23,21 +24,18 @@ type ClipboardRequest struct {
 func main() {
 	configFile, err := os.Open("config.json")
 	if err != nil {
-		fmt.Println("Error opening config file:", err)
-		return
+		log.Fatal(err)
 	}
 	defer configFile.Close()
 	var config Config
 	err = json.NewDecoder(configFile).Decode(&config)
 	if err != nil {
-		fmt.Println("Error decoding config:", err)
-		return
+		log.Fatal(err)
 	}
 	address := fmt.Sprintf("%s:%d", config.ServerIP, config.ServerPort)
 	ln, err := net.Listen("tcp", address)
 	if err != nil {
-		fmt.Println("Error starting server:", err)
-		return
+		log.Fatal(err)
 	}
 	defer ln.Close()
 	fmt.Printf("Server listening on %s...\n", address)
