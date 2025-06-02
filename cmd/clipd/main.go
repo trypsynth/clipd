@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 )
 
 type Config struct {
@@ -19,7 +20,13 @@ type ClipboardRequest struct {
 }
 
 func main() {
-	configFile, err := os.Open("config.json")
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Fatalf("Failed to get executable path: %v", err)
+	}
+	exeDir := filepath.Dir(exePath)
+	configPath := filepath.Join(exeDir, "config.json")
+	configFile, err := os.Open(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
