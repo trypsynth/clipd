@@ -23,8 +23,12 @@ func Build() error {
 	if err := sh("go", "build", "-o", binDir+"/clipd"+ext, "./cmd/clipd"); err != nil {
 		return err
 	}
-	if err := sh("go", "build", "-o", binDir+"/server"+ext, "./cmd/server"); err != nil {
-		return err
+	if runtime.GOOS == "windows" {
+		if err := sh("go", "build", "-o", binDir+"/server"+ext, "./cmd/server"); err != nil {
+			return err
+		}
+	} else {
+		fmt.Println("Skipping server build (Windows-only)")
 	}
 	if err := copyConfig(); err != nil {
 		return err
