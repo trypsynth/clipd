@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"syscall"
 	"unsafe"
 
@@ -98,13 +99,23 @@ func onExit() {
 
 func handle(c net.Conn) {
 	defer c.Close()
-	var req shared.ClipboardRequest
-	if err := json.NewDecoder(c).Decode(&req); err != nil {
+	var req shared.Request
+	decoder := json.NewDecoder(c)
+	if err := decoder.Decode(&req); err != nil {
 		log.Println("Decode error:", err)
 		return
 	}
-	if err := setClipboard(req.Data); err != nil {
-		log.Println("Clipboard error:", err)
+	switch req.Type {
+	case shared.RequestTypeClipboard:
+		if err := setClipboard(req.Data); err != nil {
+			log.Println("Clipboard error:", err)
+		}
+	case shared.RequestTypeRun:
+		if err := runProgram(req.Program, []string{req.Data}); err != nil {
+			log.Printf("Program execution error: %v", err)
+		}
+	default:
+		log.Printf("Unknown request type: %s", req.Type)
 	}
 }
 
@@ -127,6 +138,15 @@ func setClipboard(s string) error {
 	globalUnlock.Call(h)
 	if r, _, err := setClipboardData.Call(cfUnicodeText, h); r == 0 {
 		return err
+	}
+	return nil
+}
+
+func runProgram(program string, args []string) error {
+	log.Printf("Executing: %s %v", program, args)
+	cmd := exec.Command(program, args...)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start program %s: %v", program, err)
 	}
 	return nil
 }

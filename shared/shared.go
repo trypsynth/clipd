@@ -8,12 +8,21 @@ import (
 )
 
 type Config struct {
-	ServerIP   string `json:"serverIP"`
-	ServerPort int    `json:"serverPort"`
+	ServerIP        string            `json:"serverIP"`
+	ServerPort      int               `json:"serverPort"`
 }
 
-type ClipboardRequest struct {
-	Data string `json:"data"`
+type RequestType int
+
+const (
+	RequestTypeClipboard RequestType = iota
+	RequestTypeRun
+)
+
+type Request struct {
+	Type RequestType `json:"type"`
+	Program string   `json:"program,omitempty"`
+	Data string      `json:"data,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {

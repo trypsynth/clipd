@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/trypsynth/clipd/shared"
 )
@@ -17,17 +18,47 @@ func main() {
 		log.Fatal(err)
 	}
 	serverAddress := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
+	if len(os.Args) > 1 && os.Args[1] == "run" {
+		if len(os.Args) < 3 {
+			log.Fatal("Usage: clipd run <program> [args...]")
+		}
+		program := os.Args[2]
+		args := []string{}
+		if len(os.Args) > 3 {
+			args = os.Args[3:]
+		}
+		if err := sendRunRequest(serverAddress, program, args); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	inputData, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := sendToClipboardServer(serverAddress, string(inputData)); err != nil {
+	if err := sendClipboardRequest(serverAddress, string(inputData)); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func sendToClipboardServer(address, data string) error {
-	request := shared.ClipboardRequest{Data: data}
+func sendClipboardRequest(address, data string) error {
+	request := shared.Request{
+		Type: shared.RequestTypeClipboard,
+		Data: data,
+	}
+	return sendRequest(address, request)
+}
+
+func sendRunRequest(address, program string, args []string) error {
+	request := shared.Request{
+		Type:    shared.RequestTypeRun,
+		Program: program,
+		Data:    strings.Join(args, " "),
+	}
+	return sendRequest(address, request)
+}
+
+func sendRequest(address string, request shared.Request) error {
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("error marshalling data: %v", err)
