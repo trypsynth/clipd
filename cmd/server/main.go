@@ -111,7 +111,7 @@ func handle(c net.Conn) {
 			log.Println("Clipboard error:", err)
 		}
 	case shared.RequestTypeRun:
-		if err := runProgram(req.Program, []string{req.Data}); err != nil {
+		if err := runProgram(req.Data, req.Args); err != nil {
 			log.Printf("Program execution error: %v", err)
 		}
 	default:

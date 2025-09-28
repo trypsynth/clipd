@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/trypsynth/clipd/shared"
 )
@@ -52,8 +51,8 @@ func sendClipboardRequest(address, data string) error {
 func sendRunRequest(address, program string, args []string) error {
 	request := shared.Request{
 		Type:    shared.RequestTypeRun,
-		Program: program,
-		Data:    strings.Join(args, " "),
+		Data: program,
+		Args:    args,
 	}
 	return sendRequest(address, request)
 }
