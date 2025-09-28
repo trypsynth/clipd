@@ -20,7 +20,7 @@ func Build() error {
 		return err
 	}
 	if runtime.GOOS == "windows" {
-		if err := sh("go", "build", "-o", binDir+"/server"+ext, "./cmd/server"); err != nil {
+		if err := sh("go", "build", "-ldflags", "-H windowsgui", "-o", binDir+"/server"+ext, "./cmd/server"); err != nil {
 			return err
 		}
 	}

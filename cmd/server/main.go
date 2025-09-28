@@ -3,14 +3,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"golang.org/x/sys/windows"
 	"log"
 	"net"
+	"os"
 	"syscall"
 	"unsafe"
 
+	"github.com/getlantern/systray"
 	"github.com/trypsynth/clipd/shared"
 )
 
@@ -27,6 +30,9 @@ var (
 	memcpy           = kernel32.NewProc("RtlMoveMemory")
 	cfUnicodeText    = uintptr(13)
 	gmemMoveable     = uintptr(2)
+	server           net.Listener
+	serverCtx        context.Context
+	serverCancel     context.CancelFunc
 )
 
 func main() {
@@ -34,20 +40,60 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	serverCtx, serverCancel = context.WithCancel(context.Background())
+	go startServer(cfg)
+	systray.Run(onReady, onExit)
+}
+
+func startServer(cfg *shared.Config) {
 	addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
+	server = ln
 	defer ln.Close()
 	log.Printf("Listening on %s...\n", addr)
 	for {
-		if conn, err := ln.Accept(); err == nil {
-			go handle(conn)
-		} else {
-			log.Println("Accept error:", err)
+		select {
+		case <-serverCtx.Done():
+			return
+		default:
+			if conn, err := ln.Accept(); err == nil {
+				go handle(conn)
+			} else {
+				if serverCtx.Err() != nil {
+					return
+				}
+				log.Println("Accept error:", err)
+			}
 		}
 	}
+}
+
+func onReady() {
+	systray.SetTitle("Clipd")
+	systray.SetTooltip("Clipd Server")
+	mQuit := systray.AddMenuItem("Quit", "Quit the server")
+	go func() {
+		for {
+			select {
+			case <-mQuit.ClickedCh:
+				systray.Quit()
+				return
+			}
+		}
+	}()
+}
+
+func onExit() {
+	if serverCancel != nil {
+		serverCancel()
+	}
+	if server != nil {
+		server.Close()
+	}
+	os.Exit(0)
 }
 
 func handle(c net.Conn) {
