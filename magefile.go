@@ -4,10 +4,8 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 )
 
@@ -30,9 +28,6 @@ func Build() error {
 	} else {
 		fmt.Println("Skipping server build (Windows-only)")
 	}
-	if err := copyConfig(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -51,19 +46,4 @@ func sh(command string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-func copyConfig() error {
-	srcPath := "config.json"
-	destPath := filepath.Join(binDir, "config.json")
-	data, err := ioutil.ReadFile(srcPath)
-	if err != nil {
-		return fmt.Errorf("failed to read config.json: %w", err)
-	}
-	err = ioutil.WriteFile(destPath, data, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write config.json to bin: %w", err)
-	}
-	fmt.Println("Copied config.json to bin directory")
-	return nil
 }

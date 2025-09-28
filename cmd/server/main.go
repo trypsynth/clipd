@@ -8,19 +8,11 @@ import (
 	"golang.org/x/sys/windows"
 	"log"
 	"net"
-	"os"
 	"syscall"
 	"unsafe"
+
+	"github.com/trypsynth/clipd/shared"
 )
-
-type config struct {
-	ServerIP   string
-	ServerPort int
-}
-
-type clipboardRequest struct {
-	Data string
-}
 
 var (
 	user32           = windows.NewLazySystemDLL("user32.dll")
@@ -38,13 +30,8 @@ var (
 )
 
 func main() {
-	f, err := os.Open("config.json")
+	cfg, err := shared.LoadConfig()
 	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-	var cfg config
-	if err := json.NewDecoder(f).Decode(&cfg); err != nil {
 		log.Fatal(err)
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
@@ -65,7 +52,7 @@ func main() {
 
 func handle(c net.Conn) {
 	defer c.Close()
-	var req clipboardRequest
+	var req shared.ClipboardRequest
 	if err := json.NewDecoder(c).Decode(&req); err != nil {
 		log.Println("Decode error:", err)
 		return

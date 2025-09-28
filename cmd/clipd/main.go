@@ -7,35 +7,16 @@ import (
 	"log"
 	"net"
 	"os"
-	"path/filepath"
+
+	"github.com/trypsynth/clipd/shared"
 )
 
-type Config struct {
-	ServerIP   string
-	ServerPort int
-}
-
-type ClipboardRequest struct {
-	Data string
-}
-
 func main() {
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Fatalf("Failed to get executable path: %v", err)
-	}
-	exeDir := filepath.Dir(exePath)
-	configPath := filepath.Join(exeDir, "config.json")
-	configFile, err := os.Open(configPath)
+	cfg, err := shared.LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer configFile.Close()
-	var config Config
-	if err := json.NewDecoder(configFile).Decode(&config); err != nil {
-		log.Fatal(err)
-	}
-	serverAddress := fmt.Sprintf("%s:%d", config.ServerIP, config.ServerPort)
+	serverAddress := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
 	inputData, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		log.Fatal(err)
@@ -46,7 +27,7 @@ func main() {
 }
 
 func sendToClipboardServer(address, data string) error {
-	request := ClipboardRequest{Data: data}
+	request := shared.ClipboardRequest{Data: data}
 	jsonData, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("error marshalling data: %v", err)
