@@ -34,6 +34,7 @@ var (
 	server           net.Listener
 	serverCtx        context.Context
 	serverCancel     context.CancelFunc
+	config           *shared.Config
 )
 
 func main() {
@@ -41,6 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	config = cfg
 	serverCtx, serverCancel = context.WithCancel(context.Background())
 	go startServer(cfg)
 	systray.Run(onReady, onExit)
@@ -143,10 +145,14 @@ func setClipboard(s string) error {
 }
 
 func runProgram(program string, args []string) error {
-	log.Printf("Executing: %s %v", program, args)
-	cmd := exec.Command(program, args...)
+	resolvedProgram := shared.ResolvePath(program, config.DriveMappings)
+	resolvedArgs := make([]string, len(args))
+	for i, arg := range args {
+		resolvedArgs[i] = shared.ResolvePath(arg, config.DriveMappings)
+	}
+	cmd := exec.Command(resolvedProgram, resolvedArgs...)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start program %s: %v", program, err)
+		return fmt.Errorf("failed to start program %s: %v", resolvedProgram, err)
 	}
 	return nil
 }

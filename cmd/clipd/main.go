@@ -21,10 +21,12 @@ func main() {
 		if len(os.Args) < 3 {
 			log.Fatal("Usage: clipd run <program> [args...]")
 		}
-		program := os.Args[2]
+		program := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
 		args := []string{}
 		if len(os.Args) > 3 {
-			args = os.Args[3:]
+			for _, arg := range os.Args[3:] {
+				args = append(args, shared.ResolvePath(arg, cfg.DriveMappings))
+			}
 		}
 		if err := sendRunRequest(serverAddress, program, args); err != nil {
 			log.Fatal(err)
@@ -50,9 +52,9 @@ func sendClipboardRequest(address, data string) error {
 
 func sendRunRequest(address, program string, args []string) error {
 	request := shared.Request{
-		Type:    shared.RequestTypeRun,
+		Type: shared.RequestTypeRun,
 		Data: program,
-		Args:    args,
+		Args: args,
 	}
 	return sendRequest(address, request)
 }

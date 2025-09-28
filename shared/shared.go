@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
-	ServerIP        string            `json:"serverIP"`
-	ServerPort      int               `json:"serverPort"`
+	ServerIP      string            `json:"serverIP"`
+	ServerPort    int               `json:"serverPort"`
+	DriveMappings map[string]string `json:"driveMappings,omitempty"`
 }
 
 type RequestType int
@@ -22,7 +24,7 @@ const (
 type Request struct {
 	Type RequestType `json:"type"`
 	Data string      `json:"data,omitempty"`
-	Args []string      `json:"args,omitempty"`
+	Args []string    `json:"args,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -47,4 +49,25 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("serverPort must be between 1 and 65535")
 	}
 	return &config, nil
+}
+
+func ResolvePath(path string, mappings map[string]string) string {
+	if mappings == nil || len(mappings) == 0 {
+		return path
+	}
+	normalizedPath := strings.ReplaceAll(path, "\\", "/")
+	for driveMapping, realPath := range mappings {
+		drivePrefix := strings.ToLower(strings.TrimSuffix(driveMapping, ":")) + ":"
+		if strings.HasPrefix(strings.ToLower(normalizedPath), drivePrefix) {
+			relativePath := strings.TrimPrefix(normalizedPath, drivePrefix)
+			if strings.HasPrefix(relativePath, "/") {
+				relativePath = relativePath[1:]
+			}
+			if relativePath == "" {
+				return realPath
+			}
+			return filepath.Join(realPath, relativePath)
+		}
+	}
+	return path
 }
