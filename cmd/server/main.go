@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"golang.org/x/sys/windows"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -29,18 +28,27 @@ var (
 	globalLock       = kernel32.NewProc("GlobalLock")
 	globalUnlock     = kernel32.NewProc("GlobalUnlock")
 	memcpy           = kernel32.NewProc("RtlMoveMemory")
+	messageBoxW      = user32.NewProc("MessageBoxW")
 	cfUnicodeText    = uintptr(13)
 	gmemMoveable     = uintptr(2)
+	mbIconError      = uintptr(0x00000010)
 	server           net.Listener
 	serverCtx        context.Context
 	serverCancel     context.CancelFunc
 	config           *shared.Config
 )
 
+func showErrorBox(title, message string) {
+	titlePtr, _ := windows.UTF16PtrFromString(title)
+	messagePtr, _ := windows.UTF16PtrFromString(message)
+	messageBoxW.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbIconError)
+}
+
 func main() {
 	cfg, err := shared.LoadConfig()
 	if err != nil {
-		log.Fatal(err)
+		showErrorBox("Error", fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
 	}
 	config = cfg
 	serverCtx, serverCancel = context.WithCancel(context.Background())
@@ -52,11 +60,11 @@ func startServer(cfg *shared.Config) {
 	addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatal(err)
+		showErrorBox("Error", fmt.Sprintf("Failed to start server on %s: %v", addr, err))
+		os.Exit(1)
 	}
 	server = ln
 	defer ln.Close()
-	log.Printf("Listening on %s...\n", addr)
 	for {
 		select {
 		case <-serverCtx.Done():
@@ -68,7 +76,7 @@ func startServer(cfg *shared.Config) {
 				if serverCtx.Err() != nil {
 					return
 				}
-				log.Println("Accept error:", err)
+				showErrorBox("Error", fmt.Sprintf("Connection accept error: %v", err))
 			}
 		}
 	}
@@ -104,20 +112,20 @@ func handle(c net.Conn) {
 	var req shared.Request
 	decoder := json.NewDecoder(c)
 	if err := decoder.Decode(&req); err != nil {
-		log.Println("Decode error:", err)
+		showErrorBox("Clipd Server Error", fmt.Sprintf("Failed to decode request: %v", err))
 		return
 	}
 	switch req.Type {
 	case shared.RequestTypeClipboard:
 		if err := setClipboard(req.Data); err != nil {
-			log.Println("Clipboard error:", err)
+			showErrorBox("Error", fmt.Sprintf("Clipboard operation failed: %v", err))
 		}
 	case shared.RequestTypeRun:
 		if err := runProgram(req.Data, req.Args); err != nil {
-			log.Printf("Program execution error: %v", err)
+			showErrorBox("Error", fmt.Sprintf("Program execution failed: %v", err))
 		}
 	default:
-		log.Printf("Unknown request type: %s", req.Type)
+		showErrorBox("Error", fmt.Sprintf("Unknown request type: %v", req.Type))
 	}
 }
 
