@@ -22,9 +22,10 @@ const (
 )
 
 type Request struct {
-	Type RequestType `json:"type"`
-	Data string      `json:"data,omitempty"`
-	Args []string    `json:"args,omitempty"`
+	Type       RequestType `json:"type"`
+	Data       string      `json:"data,omitempty"`
+	Args       []string    `json:"args,omitempty"`
+	WorkingDir string      `json:"workingDir,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {

@@ -121,7 +121,7 @@ func handle(c net.Conn) {
 			showErrorBox("Error", fmt.Sprintf("Clipboard operation failed: %v", err))
 		}
 	case shared.RequestTypeRun:
-		if err := runProgram(req.Data, req.Args); err != nil {
+		if err := runProgram(req.Data, req.Args, req.WorkingDir); err != nil {
 			showErrorBox("Error", fmt.Sprintf("Program execution failed: %v", err))
 		}
 	default:
@@ -152,8 +152,11 @@ func setClipboard(s string) error {
 	return nil
 }
 
-func runProgram(program string, args []string) error {
+func runProgram(program string, args []string, workingDir string) error {
 	cmd := exec.Command(program, args...)
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start program %s: %v", program, err)
 	}

@@ -28,7 +28,12 @@ func main() {
 				args = append(args, shared.ResolvePath(arg, cfg.DriveMappings))
 			}
 		}
-		if err := sendRunRequest(serverAddress, program, args); err != nil {
+		cwd, err := os.Getwd()
+		if err != nil {
+			log.Fatal("Failed to get current working directory: ", err)
+		}
+		workingDir := shared.ResolvePath(cwd, cfg.DriveMappings)
+		if err := sendRunRequest(serverAddress, program, args, workingDir); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -50,11 +55,12 @@ func sendClipboardRequest(address, data string) error {
 	return sendRequest(address, request)
 }
 
-func sendRunRequest(address, program string, args []string) error {
+func sendRunRequest(address, program string, args []string, workingDir string) error {
 	request := shared.Request{
-		Type: shared.RequestTypeRun,
-		Data: program,
-		Args: args,
+		Type:       shared.RequestTypeRun,
+		Data:       program,
+		Args:       args,
+		WorkingDir: workingDir,
 	}
 	return sendRequest(address, request)
 }
