@@ -153,14 +153,9 @@ func setClipboard(s string) error {
 }
 
 func runProgram(program string, args []string) error {
-	resolvedProgram := shared.ResolvePath(program, config.DriveMappings)
-	resolvedArgs := make([]string, len(args))
-	for i, arg := range args {
-		resolvedArgs[i] = shared.ResolvePath(arg, config.DriveMappings)
-	}
-	cmd := exec.Command(resolvedProgram, resolvedArgs...)
+	cmd := exec.Command(program, args...)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start program %s: %v", resolvedProgram, err)
+		return fmt.Errorf("failed to start program %s: %v", program, err)
 	}
 	return nil
 }

@@ -55,19 +55,47 @@ func ResolvePath(path string, mappings map[string]string) string {
 	if mappings == nil || len(mappings) == 0 {
 		return path
 	}
-	normalizedPath := strings.ReplaceAll(path, "\\", "/")
-	for driveMapping, realPath := range mappings {
-		drivePrefix := strings.ToLower(strings.TrimSuffix(driveMapping, ":")) + ":"
-		if strings.HasPrefix(strings.ToLower(normalizedPath), drivePrefix) {
-			relativePath := strings.TrimPrefix(normalizedPath, drivePrefix)
-			if strings.HasPrefix(relativePath, "/") {
-				relativePath = relativePath[1:]
+	expandedPath := expandHomePath(path)
+	normalizedPath := strings.ReplaceAll(expandedPath, "\\", "/")
+	var bestMatch string
+	var bestDrive string
+	for drive, linuxPath := range mappings {
+		normalizedLinuxPath := strings.ReplaceAll(linuxPath, "\\", "/")
+		if strings.HasPrefix(normalizedPath, normalizedLinuxPath) {
+			if len(normalizedLinuxPath) > len(bestMatch) {
+				bestMatch = normalizedLinuxPath
+				bestDrive = drive
 			}
-			if relativePath == "" {
-				return realPath
-			}
-			return filepath.Join(realPath, relativePath)
 		}
+	}
+	if bestMatch != "" {
+		relativePath := strings.TrimPrefix(normalizedPath, bestMatch)
+		if strings.HasPrefix(relativePath, "/") {
+			relativePath = relativePath[1:]
+		}
+		drive := strings.TrimSuffix(bestDrive, ":")
+		if relativePath == "" {
+			return drive + ":\\"
+		}
+		relativePath = strings.ReplaceAll(relativePath, "/", "\\")
+		return drive + ":\\" + relativePath
+	}
+	return path
+}
+
+func expandHomePath(path string) string {
+	if !strings.HasPrefix(path, "~") {
+		return path
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return homeDir
+	}
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "~\\") {
+		return filepath.Join(homeDir, path[2:])
 	}
 	return path
 }
