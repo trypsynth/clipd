@@ -17,26 +17,28 @@ import (
 )
 
 var (
-	user32           = windows.NewLazySystemDLL("user32.dll")
-	kernel32         = windows.NewLazySystemDLL("kernel32.dll")
-	shell32          = windows.NewLazySystemDLL("shell32.dll")
-	openClipboard    = user32.NewProc("OpenClipboard")
-	emptyClipboard   = user32.NewProc("EmptyClipboard")
-	setClipboardData = user32.NewProc("SetClipboardData")
-	closeClipboard   = user32.NewProc("CloseClipboard")
-	globalAlloc      = kernel32.NewProc("GlobalAlloc")
-	globalLock       = kernel32.NewProc("GlobalLock")
-	globalUnlock     = kernel32.NewProc("GlobalUnlock")
-	memcpy           = kernel32.NewProc("RtlMoveMemory")
-	messageBoxW      = user32.NewProc("MessageBoxW")
-	shellExecuteExW  = shell32.NewProc("ShellExecuteExW")
-	cfUnicodeText    = uintptr(13)
-	gmemMoveable     = uintptr(2)
-	mbIconError      = uintptr(0x00000010)
-	server           net.Listener
-	serverCtx        context.Context
-	serverCancel     context.CancelFunc
-	config           *shared.Config
+	user32                   = windows.NewLazySystemDLL("user32.dll")
+	kernel32                 = windows.NewLazySystemDLL("kernel32.dll")
+	shell32                  = windows.NewLazySystemDLL("shell32.dll")
+	openClipboard            = user32.NewProc("OpenClipboard")
+	emptyClipboard           = user32.NewProc("EmptyClipboard")
+	setClipboardData         = user32.NewProc("SetClipboardData")
+	closeClipboard           = user32.NewProc("CloseClipboard")
+	globalAlloc              = kernel32.NewProc("GlobalAlloc")
+	globalLock               = kernel32.NewProc("GlobalLock")
+	globalUnlock             = kernel32.NewProc("GlobalUnlock")
+	memcpy                   = kernel32.NewProc("RtlMoveMemory")
+	messageBoxW              = user32.NewProc("MessageBoxW")
+	shellExecuteExW          = shell32.NewProc("ShellExecuteExW")
+	allowSetForegroundWindow = user32.NewProc("AllowSetForegroundWindow")
+	getProcessId             = kernel32.NewProc("GetProcessId")
+	cfUnicodeText            = uintptr(13)
+	gmemMoveable             = uintptr(2)
+	mbIconError              = uintptr(0x00000010)
+	server                   net.Listener
+	serverCtx                context.Context
+	serverCancel             context.CancelFunc
+	config                   *shared.Config
 )
 
 const (
@@ -217,6 +219,12 @@ func runProgram(program string, args []string, workingDir string) error {
 	ret, _, err := shellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
 	if ret == 0 {
 		return fmt.Errorf("ShellExecuteEx failed: %v", err)
+	}
+	if sei.hProcess != 0 {
+		pid, _, _ := getProcessId.Call(sei.hProcess)
+		if pid != 0 {
+			allowSetForegroundWindow.Call(pid)
+		}
 	}
 	return nil
 }
