@@ -9,7 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
-	"os/exec"
 	"syscall"
 	"unsafe"
 
@@ -20,6 +19,7 @@ import (
 var (
 	user32           = windows.NewLazySystemDLL("user32.dll")
 	kernel32         = windows.NewLazySystemDLL("kernel32.dll")
+	shell32          = windows.NewLazySystemDLL("shell32.dll")
 	openClipboard    = user32.NewProc("OpenClipboard")
 	emptyClipboard   = user32.NewProc("EmptyClipboard")
 	setClipboardData = user32.NewProc("SetClipboardData")
@@ -29,6 +29,7 @@ var (
 	globalUnlock     = kernel32.NewProc("GlobalUnlock")
 	memcpy           = kernel32.NewProc("RtlMoveMemory")
 	messageBoxW      = user32.NewProc("MessageBoxW")
+	shellExecuteExW  = shell32.NewProc("ShellExecuteExW")
 	cfUnicodeText    = uintptr(13)
 	gmemMoveable     = uintptr(2)
 	mbIconError      = uintptr(0x00000010)
@@ -37,6 +38,29 @@ var (
 	serverCancel     context.CancelFunc
 	config           *shared.Config
 )
+
+const (
+	SEE_MASK_NOCLOSEPROCESS = 0x00000040
+	SW_SHOWNORMAL           = 1
+)
+
+type SHELLEXECUTEINFO struct {
+	cbSize         uint32
+	fMask          uint32
+	hwnd           uintptr
+	lpVerb         *uint16
+	lpFile         *uint16
+	lpParameters   *uint16
+	lpDirectory    *uint16
+	nShow          int32
+	hInstApp       uintptr
+	lpIDList       uintptr
+	lpClass        *uint16
+	hkeyClass      uintptr
+	dwHotKey       uint32
+	hIconOrMonitor uintptr
+	hProcess       uintptr
+}
 
 func showErrorBox(title, message string) {
 	titlePtr, _ := windows.UTF16PtrFromString(title)
@@ -153,12 +177,55 @@ func setClipboard(s string) error {
 }
 
 func runProgram(program string, args []string, workingDir string) error {
-	cmd := exec.Command(program, args...)
-	if workingDir != "" {
-		cmd.Dir = workingDir
+	lpFile, err := windows.UTF16PtrFromString(program)
+	if err != nil {
+		return fmt.Errorf("failed to convert program path: %v", err)
 	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start program %s: %v", program, err)
+	var lpParameters *uint16
+	if len(args) > 0 {
+		params := ""
+		for i, arg := range args {
+			if i > 0 {
+				params += " "
+			}
+			if contains(arg, " ") {
+				params += fmt.Sprintf("\"%s\"", arg)
+			} else {
+				params += arg
+			}
+		}
+		lpParameters, err = windows.UTF16PtrFromString(params)
+		if err != nil {
+			return fmt.Errorf("failed to convert parameters: %v", err)
+		}
+	}
+	var lpDirectory *uint16
+	if workingDir != "" {
+		lpDirectory, err = windows.UTF16PtrFromString(workingDir)
+		if err != nil {
+			return fmt.Errorf("failed to convert working directory: %v", err)
+		}
+	}
+	sei := SHELLEXECUTEINFO{
+		cbSize:       uint32(unsafe.Sizeof(SHELLEXECUTEINFO{})),
+		fMask:        SEE_MASK_NOCLOSEPROCESS,
+		lpFile:       lpFile,
+		lpParameters: lpParameters,
+		lpDirectory:  lpDirectory,
+		nShow:        SW_SHOWNORMAL,
+	}
+	ret, _, err := shellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
+	if ret == 0 {
+		return fmt.Errorf("ShellExecuteEx failed: %v", err)
 	}
 	return nil
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
