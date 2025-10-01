@@ -33,7 +33,7 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	configPath := filepath.Join(homeDir, "clipd.json")
+	configPath := filepath.Join(homeDir, ".clipd")
 	configFile, err := os.Open(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open config file at %s: %w", configPath, err)
