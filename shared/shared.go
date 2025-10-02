@@ -12,6 +12,7 @@ type Config struct {
 	ServerIP      string            `json:"serverIP"`
 	ServerPort    int               `json:"serverPort"`
 	DriveMappings map[string]string `json:"driveMappings,omitempty"`
+	Password      string            `json:"password,omitempty"`
 }
 
 type RequestType int
@@ -26,6 +27,7 @@ type Request struct {
 	Data       string      `json:"data,omitempty"`
 	Args       []string    `json:"args,omitempty"`
 	WorkingDir string      `json:"workingDir,omitempty"`
+	Password   string      `json:"password,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {

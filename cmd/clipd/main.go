@@ -11,8 +11,11 @@ import (
 	"github.com/trypsynth/clipd/shared"
 )
 
+var cfg *shared.Config
+
 func main() {
-	cfg, err := shared.LoadConfig()
+	var err error
+	cfg, err = shared.LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,8 +52,9 @@ func main() {
 
 func sendClipboardRequest(address, data string) error {
 	request := shared.Request{
-		Type: shared.RequestTypeClipboard,
-		Data: data,
+		Type:     shared.RequestTypeClipboard,
+		Data:     data,
+		Password: cfg.Password,
 	}
 	return sendRequest(address, request)
 }
@@ -61,6 +65,7 @@ func sendRunRequest(address, program string, args []string, workingDir string) e
 		Data:       program,
 		Args:       args,
 		WorkingDir: workingDir,
+		Password:   cfg.Password,
 	}
 	return sendRequest(address, request)
 }

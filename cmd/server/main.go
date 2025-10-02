@@ -141,6 +141,10 @@ func handle(c net.Conn) {
 		showErrorBox("Clipd Server Error", fmt.Sprintf("Failed to decode request: %v", err))
 		return
 	}
+	if config.Password != req.Password {
+		showErrorBox("Clipd Server Error", "Incorrect password received.")
+		return
+	}
 	switch req.Type {
 	case shared.RequestTypeClipboard:
 		if err := setClipboard(req.Data); err != nil {
