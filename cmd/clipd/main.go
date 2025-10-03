@@ -25,11 +25,9 @@ func main() {
 			log.Fatal("Usage: clipd run <program> [args...]")
 		}
 		program := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
-		args := []string{}
-		if len(os.Args) > 3 {
-			for _, arg := range os.Args[3:] {
-				args = append(args, shared.ResolvePath(arg, cfg.DriveMappings))
-			}
+		args := make([]string, len(os.Args)-3)
+		for i, arg := range os.Args[3:] {
+			args[i] = shared.ResolvePath(arg, cfg.DriveMappings)
 		}
 		cwd, err := os.Getwd()
 		if err != nil {

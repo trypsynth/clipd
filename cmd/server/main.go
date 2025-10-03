@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/sys/windows"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/getlantern/systray"
 	"github.com/trypsynth/clipd/shared"
@@ -194,7 +196,7 @@ func runProgram(program string, args []string, workingDir string) error {
 			if i > 0 {
 				params += " "
 			}
-			if contains(arg, " ") {
+			if strings.Contains(arg, " ") {
 				params += fmt.Sprintf("\"%s\"", arg)
 			} else {
 				params += arg
@@ -231,13 +233,4 @@ func runProgram(program string, args []string, workingDir string) error {
 		}
 	}
 	return nil
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

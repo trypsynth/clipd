@@ -55,7 +55,7 @@ func LoadConfig() (*Config, error) {
 }
 
 func ResolvePath(path string, mappings map[string]string) string {
-	if mappings == nil || len(mappings) == 0 {
+	if len(mappings) == 0 {
 		return path
 	}
 	expandedPath := expandHomePath(path)

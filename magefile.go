@@ -4,23 +4,27 @@ package main
 
 import (
 	"os"
-	"os/exec"
+	"path/filepath"
 	"runtime"
+
+	"github.com/magefile/mage/sh"
 )
 
 var binDir = "bin"
 
 func Build() error {
-	os.MkdirAll(binDir, 0755)
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return err
+	}
 	ext := ""
 	if runtime.GOOS == "windows" {
 		ext = ".exe"
 	}
-	if err := sh("go", "build", "-o", binDir+"/clipd"+ext, "./cmd/clipd"); err != nil {
+	if err := sh.RunV("go", "build", "-o", filepath.Join(binDir, "clipd"+ext), "./cmd/clipd"); err != nil {
 		return err
 	}
 	if runtime.GOOS == "windows" {
-		if err := sh("go", "build", "-ldflags", "-H windowsgui", "-o", binDir+"/server"+ext, "./cmd/server"); err != nil {
+		if err := sh.RunV("go", "build", "-ldflags", "-H windowsgui", "-o", filepath.Join(binDir, "server"+ext), "./cmd/server"); err != nil {
 			return err
 		}
 	}
@@ -32,12 +36,5 @@ func Clean() error {
 }
 
 func Format() error {
-	return sh("go", "fmt", "./...")
-}
-
-func sh(command string, args ...string) error {
-	cmd := exec.Command(command, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return sh.RunV("go", "fmt", "./...")
 }
