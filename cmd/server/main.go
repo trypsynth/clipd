@@ -19,28 +19,28 @@ import (
 )
 
 var (
-	user32                   = windows.NewLazySystemDLL("user32.dll")
-	kernel32                 = windows.NewLazySystemDLL("kernel32.dll")
-	shell32                  = windows.NewLazySystemDLL("shell32.dll")
-	openClipboard            = user32.NewProc("OpenClipboard")
-	emptyClipboard           = user32.NewProc("EmptyClipboard")
-	setClipboardData         = user32.NewProc("SetClipboardData")
-	closeClipboard           = user32.NewProc("CloseClipboard")
-	globalAlloc              = kernel32.NewProc("GlobalAlloc")
-	globalLock               = kernel32.NewProc("GlobalLock")
-	globalUnlock             = kernel32.NewProc("GlobalUnlock")
-	memcpy                   = kernel32.NewProc("RtlMoveMemory")
-	messageBoxW              = user32.NewProc("MessageBoxW")
-	shellExecuteExW          = shell32.NewProc("ShellExecuteExW")
-	systemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
-	getProcessId             = kernel32.NewProc("GetProcessId")
-	cfUnicodeText            = uintptr(13)
-	gmemMoveable             = uintptr(2)
-	mbIconError              = uintptr(0x00000010)
-	server                   net.Listener
-	serverCtx                context.Context
-	serverCancel             context.CancelFunc
-	config                   *shared.Config
+	user32                = windows.NewLazySystemDLL("user32.dll")
+	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
+	shell32               = windows.NewLazySystemDLL("shell32.dll")
+	openClipboard         = user32.NewProc("OpenClipboard")
+	emptyClipboard        = user32.NewProc("EmptyClipboard")
+	setClipboardData      = user32.NewProc("SetClipboardData")
+	closeClipboard        = user32.NewProc("CloseClipboard")
+	globalAlloc           = kernel32.NewProc("GlobalAlloc")
+	globalLock            = kernel32.NewProc("GlobalLock")
+	globalUnlock          = kernel32.NewProc("GlobalUnlock")
+	memcpy                = kernel32.NewProc("RtlMoveMemory")
+	messageBoxW           = user32.NewProc("MessageBoxW")
+	shellExecuteExW       = shell32.NewProc("ShellExecuteExW")
+	systemParametersInfoW = user32.NewProc("SystemParametersInfoW")
+	getProcessId          = kernel32.NewProc("GetProcessId")
+	cfUnicodeText         = uintptr(13)
+	gmemMoveable          = uintptr(2)
+	mbIconError           = uintptr(0x00000010)
+	server                net.Listener
+	serverCtx             context.Context
+	serverCancel          context.CancelFunc
+	config                *shared.Config
 )
 
 const (
