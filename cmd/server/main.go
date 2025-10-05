@@ -32,7 +32,7 @@ var (
 	memcpy                   = kernel32.NewProc("RtlMoveMemory")
 	messageBoxW              = user32.NewProc("MessageBoxW")
 	shellExecuteExW          = shell32.NewProc("ShellExecuteExW")
-	allowSetForegroundWindow = user32.NewProc("AllowSetForegroundWindow")
+	systemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
 	getProcessId             = kernel32.NewProc("GetProcessId")
 	cfUnicodeText            = uintptr(13)
 	gmemMoveable             = uintptr(2)
@@ -222,15 +222,13 @@ func runProgram(program string, args []string, workingDir string) error {
 		lpDirectory:  lpDirectory,
 		nShow:        SW_SHOWNORMAL,
 	}
+	var oldTimeout uintptr
+	systemParametersInfoW.Call(0x2000, 0, uintptr(unsafe.Pointer(&oldTimeout)), 0)
+	systemParametersInfoW.Call(0x2001, 0, 0, 0)
 	ret, _, err := shellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
+	systemParametersInfoW.Call(0x2001, 0, oldTimeout, 0)
 	if ret == 0 {
 		return fmt.Errorf("ShellExecuteEx failed: %v", err)
-	}
-	if sei.hProcess != 0 {
-		pid, _, _ := getProcessId.Call(sei.hProcess)
-		if pid != 0 {
-			allowSetForegroundWindow.Call(pid)
-		}
 	}
 	return nil
 }
