@@ -20,6 +20,14 @@ func main() {
 		log.Fatal(err)
 	}
 	serverAddress := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
+	if len(os.Args) > 1 && os.Args[1] == "path" {
+		if len(os.Args) < 3 {
+			log.Fatal("Usage: clipd path <path>")
+		}
+		path := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
+		fmt.Println(path)
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "run" {
 		if len(os.Args) < 3 {
 			log.Fatal("Usage: clipd run <program> [args...]")
