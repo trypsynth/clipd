@@ -65,9 +65,13 @@ func ResolvePath(path string, mappings map[string]string) string {
 	for drive, linuxPath := range mappings {
 		normalizedLinuxPath := strings.ReplaceAll(linuxPath, "\\", "/")
 		if strings.HasPrefix(normalizedPath, normalizedLinuxPath) {
-			if len(normalizedLinuxPath) > len(bestMatch) {
-				bestMatch = normalizedLinuxPath
-				bestDrive = drive
+			// Ensure it's an exact match or followed by a path separator.
+			remainder := normalizedPath[len(normalizedLinuxPath):]
+			if remainder == "" || strings.HasPrefix(remainder, "/") {
+				if len(normalizedLinuxPath) > len(bestMatch) {
+					bestMatch = normalizedLinuxPath
+					bestDrive = drive
+				}
 			}
 		}
 	}
