@@ -19,33 +19,36 @@ import (
 )
 
 var (
-	user32                = windows.NewLazySystemDLL("user32.dll")
-	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
-	shell32               = windows.NewLazySystemDLL("shell32.dll")
-	openClipboard         = user32.NewProc("OpenClipboard")
-	emptyClipboard        = user32.NewProc("EmptyClipboard")
-	setClipboardData      = user32.NewProc("SetClipboardData")
-	closeClipboard        = user32.NewProc("CloseClipboard")
-	globalAlloc           = kernel32.NewProc("GlobalAlloc")
-	globalLock            = kernel32.NewProc("GlobalLock")
-	globalUnlock          = kernel32.NewProc("GlobalUnlock")
-	memcpy                = kernel32.NewProc("RtlMoveMemory")
-	messageBoxW           = user32.NewProc("MessageBoxW")
-	shellExecuteExW       = shell32.NewProc("ShellExecuteExW")
-	systemParametersInfoW = user32.NewProc("SystemParametersInfoW")
-	getProcessId          = kernel32.NewProc("GetProcessId")
-	cfUnicodeText         = uintptr(13)
-	gmemMoveable          = uintptr(2)
-	mbIconError           = uintptr(0x00000010)
-	server                net.Listener
-	serverCtx             context.Context
-	serverCancel          context.CancelFunc
-	config                *shared.Config
+	user32                   = windows.NewLazySystemDLL("user32.dll")
+	kernel32                 = windows.NewLazySystemDLL("kernel32.dll")
+	shell32                  = windows.NewLazySystemDLL("shell32.dll")
+	openClipboard            = user32.NewProc("OpenClipboard")
+	emptyClipboard           = user32.NewProc("EmptyClipboard")
+	setClipboardData         = user32.NewProc("SetClipboardData")
+	closeClipboard           = user32.NewProc("CloseClipboard")
+	globalAlloc              = kernel32.NewProc("GlobalAlloc")
+	globalLock               = kernel32.NewProc("GlobalLock")
+	globalUnlock             = kernel32.NewProc("GlobalUnlock")
+	memcpy                   = kernel32.NewProc("RtlMoveMemory")
+	messageBoxW              = user32.NewProc("MessageBoxW")
+	shellExecuteExW          = shell32.NewProc("ShellExecuteExW")
+	systemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
+	getProcessId             = kernel32.NewProc("GetProcessId")
+	allowSetForegroundWindow = user32.NewProc("AllowSetForegroundWindow")
+	cfUnicodeText            = uintptr(13)
+	gmemMoveable             = uintptr(2)
+	mbIconError              = uintptr(0x00000010)
+	server                   net.Listener
+	serverCtx                context.Context
+	serverCancel             context.CancelFunc
+	config                   *shared.Config
 )
 
 const (
-	SEE_MASK_NOCLOSEPROCESS = 0x00000040
-	SW_SHOWNORMAL           = 1
+	SEE_MASK_NOCLOSEPROCESS   = 0x00000040
+	SEE_MASK_WAITFORINPUTIDLE = 0x00002000
+	SW_SHOWNORMAL             = 1
+	ASFW_ANY                  = 0xFFFFFFFF
 )
 
 type SHELLEXECUTEINFO struct {
@@ -216,7 +219,7 @@ func runProgram(program string, args []string, workingDir string) error {
 	}
 	sei := SHELLEXECUTEINFO{
 		cbSize:       uint32(unsafe.Sizeof(SHELLEXECUTEINFO{})),
-		fMask:        SEE_MASK_NOCLOSEPROCESS,
+		fMask:        SEE_MASK_NOCLOSEPROCESS | SEE_MASK_WAITFORINPUTIDLE,
 		lpFile:       lpFile,
 		lpParameters: lpParameters,
 		lpDirectory:  lpDirectory,
@@ -229,6 +232,20 @@ func runProgram(program string, args []string, workingDir string) error {
 	systemParametersInfoW.Call(0x2001, 0, oldTimeout, 0)
 	if ret == 0 {
 		return fmt.Errorf("ShellExecuteEx failed: %v", err)
+	}
+	defer func() {
+		if sei.hProcess != 0 {
+			windows.CloseHandle(windows.Handle(sei.hProcess))
+		}
+	}()
+	if sei.hProcess != 0 {
+		if pid, _, _ := getProcessId.Call(sei.hProcess); pid != 0 {
+			allowSetForegroundWindow.Call(pid)
+		} else {
+			allowSetForegroundWindow.Call(ASFW_ANY)
+		}
+	} else {
+		allowSetForegroundWindow.Call(ASFW_ANY)
 	}
 	return nil
 }
