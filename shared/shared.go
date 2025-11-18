@@ -20,6 +20,7 @@ type RequestType int
 const (
 	RequestTypeClipboard RequestType = iota
 	RequestTypeRun
+	RequestTypePipe
 )
 
 type Request struct {
@@ -28,6 +29,7 @@ type Request struct {
 	Args       []string    `json:"args,omitempty"`
 	WorkingDir string      `json:"workingDir,omitempty"`
 	Password   string      `json:"password,omitempty"`
+	Stdin      string      `json:"stdin,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {

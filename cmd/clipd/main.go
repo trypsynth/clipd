@@ -47,6 +47,29 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "pipe" {
+		if len(os.Args) < 3 {
+			log.Fatal("Usage: clipd pipe <program> [args...]")
+		}
+		program := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
+		args := make([]string, len(os.Args)-3)
+		for i, arg := range os.Args[3:] {
+			args[i] = shared.ResolvePath(arg, cfg.DriveMappings)
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			log.Fatal("Failed to get current working directory: ", err)
+		}
+		workingDir := shared.ResolvePath(cwd, cfg.DriveMappings)
+		inputData, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := sendPipeRequest(serverAddress, program, args, workingDir, string(inputData)); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	inputData, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		log.Fatal(err)
@@ -72,6 +95,18 @@ func sendRunRequest(address, program string, args []string, workingDir string) e
 		Args:       args,
 		WorkingDir: workingDir,
 		Password:   cfg.Password,
+	}
+	return sendRequest(address, request)
+}
+
+func sendPipeRequest(address, program string, args []string, workingDir, stdin string) error {
+	request := shared.Request{
+		Type:       shared.RequestTypePipe,
+		Data:       program,
+		Args:       args,
+		WorkingDir: workingDir,
+		Password:   cfg.Password,
+		Stdin:      stdin,
 	}
 	return sendRequest(address, request)
 }

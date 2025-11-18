@@ -35,6 +35,7 @@ var (
 	systemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
 	getProcessId             = kernel32.NewProc("GetProcessId")
 	allowSetForegroundWindow = user32.NewProc("AllowSetForegroundWindow")
+	waitForInputIdle         = user32.NewProc("WaitForInputIdle")
 	cfUnicodeText            = uintptr(13)
 	gmemMoveable             = uintptr(2)
 	mbIconError              = uintptr(0x00000010)
@@ -159,6 +160,10 @@ func handle(c net.Conn) {
 		if err := runProgram(req.Data, req.Args, req.WorkingDir); err != nil {
 			showErrorBox("Error", fmt.Sprintf("Program execution failed: %v", err))
 		}
+	case shared.RequestTypePipe:
+		if err := runProgramWithInput(req.Data, req.Args, req.WorkingDir, req.Stdin); err != nil {
+			showErrorBox("Error", fmt.Sprintf("Program pipe execution failed: %v", err))
+		}
 	default:
 		showErrorBox("Error", fmt.Sprintf("Unknown request type: %v", req.Type))
 	}
@@ -238,14 +243,121 @@ func runProgram(program string, args []string, workingDir string) error {
 			windows.CloseHandle(windows.Handle(sei.hProcess))
 		}
 	}()
-	if sei.hProcess != 0 {
-		if pid, _, _ := getProcessId.Call(sei.hProcess); pid != 0 {
-			allowSetForegroundWindow.Call(pid)
-		} else {
-			allowSetForegroundWindow.Call(ASFW_ANY)
+	allowForegroundForHandle(sei.hProcess)
+	return nil
+}
+
+func runProgramWithInput(program string, args []string, workingDir, stdinData string) error {
+	lpFile, err := windows.UTF16PtrFromString(program)
+	if err != nil {
+		return fmt.Errorf("failed to convert program path: %v", err)
+	}
+	var lpDirectory *uint16
+	if workingDir != "" {
+		lpDirectory, err = windows.UTF16PtrFromString(workingDir)
+		if err != nil {
+			return fmt.Errorf("failed to convert working directory: %v", err)
 		}
-	} else {
-		allowSetForegroundWindow.Call(ASFW_ANY)
+	}
+	commandLine := buildCommandLine(program, args)
+	cmdLine, err := windows.UTF16FromString(commandLine)
+	if err != nil {
+		return fmt.Errorf("failed to build command line: %v", err)
+	}
+	sa := windows.SecurityAttributes{
+		Length:        uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+		InheritHandle: 1,
+	}
+	var readPipe, writePipe windows.Handle
+	if err := windows.CreatePipe(&readPipe, &writePipe, &sa, 0); err != nil {
+		return fmt.Errorf("failed to create pipe: %v", err)
+	}
+	defer func() {
+		if readPipe != 0 {
+			windows.CloseHandle(readPipe)
+		}
+		if writePipe != 0 {
+			windows.CloseHandle(writePipe)
+		}
+	}()
+	if err := windows.SetHandleInformation(writePipe, windows.HANDLE_FLAG_INHERIT, 0); err != nil {
+		return fmt.Errorf("failed to configure pipe handle: %v", err)
+	}
+	startupInfo := &windows.StartupInfo{
+		Cb:        uint32(unsafe.Sizeof(windows.StartupInfo{})),
+		Flags:     windows.STARTF_USESTDHANDLES,
+		StdInput:  readPipe,
+		StdOutput: windows.Handle(0),
+		StdErr:    windows.Handle(0),
+	}
+	var procInfo windows.ProcessInformation
+	var oldTimeout uintptr
+	systemParametersInfoW.Call(0x2000, 0, uintptr(unsafe.Pointer(&oldTimeout)), 0)
+	systemParametersInfoW.Call(0x2001, 0, 0, 0)
+	err = windows.CreateProcess(lpFile, &cmdLine[0], nil, nil, true, 0, nil, lpDirectory, startupInfo, &procInfo)
+	systemParametersInfoW.Call(0x2001, 0, oldTimeout, 0)
+	if err != nil {
+		return fmt.Errorf("CreateProcess failed: %w", err)
+	}
+	windows.CloseHandle(procInfo.Thread)
+	defer windows.CloseHandle(procInfo.Process)
+	windows.CloseHandle(readPipe)
+	readPipe = 0
+	if err := writeToHandle(writePipe, []byte(stdinData)); err != nil {
+		return fmt.Errorf("failed to write stdin: %v", err)
+	}
+	windows.CloseHandle(writePipe)
+	writePipe = 0
+	waitForInputIdle.Call(uintptr(procInfo.Process), 5000)
+	allowForegroundForHandle(uintptr(procInfo.Process))
+	return nil
+}
+
+func writeToHandle(handle windows.Handle, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	for len(data) > 0 {
+		var written uint32
+		if err := windows.WriteFile(handle, data, &written, nil); err != nil {
+			return err
+		}
+		if written == 0 {
+			return fmt.Errorf("no data written to handle")
+		}
+		data = data[written:]
 	}
 	return nil
+}
+
+func buildCommandLine(program string, args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, quoteArgument(program))
+	for _, arg := range args {
+		parts = append(parts, quoteArgument(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteArgument(arg string) string {
+	if arg == "" {
+		return "\"\""
+	}
+	if strings.ContainsAny(arg, " \t\"") {
+		escaped := strings.ReplaceAll(arg, "\"", "\\\"")
+		return "\"" + escaped + "\""
+	}
+	return arg
+}
+
+func allowForegroundForHandle(handle uintptr) {
+	if handle == 0 {
+		allowSetForegroundWindow.Call(ASFW_ANY)
+		return
+	}
+	if pid, _, _ := getProcessId.Call(handle); pid != 0 {
+		allowSetForegroundWindow.Call(pid)
+		return
+	}
+	allowSetForegroundWindow.Call(ASFW_ANY)
 }
