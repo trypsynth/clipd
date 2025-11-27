@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -175,7 +176,8 @@ func setClipboard(s string) error {
 	}
 	defer closeClipboard.Call()
 	emptyClipboard.Call()
-	h, _, err := globalAlloc.Call(gmemMoveable, uintptr(len(s)*2+2))
+	utf16 := syscall.StringToUTF16(s)
+	h, _, err := globalAlloc.Call(gmemMoveable, uintptr(len(utf16)*2))
 	if h == 0 {
 		return err
 	}
@@ -183,7 +185,6 @@ func setClipboard(s string) error {
 	if p == 0 {
 		return fmt.Errorf("GlobalLock failed")
 	}
-	utf16 := syscall.StringToUTF16(s)
 	memcpy.Call(p, uintptr(unsafe.Pointer(&utf16[0])), uintptr(len(utf16)*2))
 	globalUnlock.Call(h)
 	if r, _, err := setClipboardData.Call(cfUnicodeText, h); r == 0 {
@@ -248,7 +249,11 @@ func runProgram(program string, args []string, workingDir string) error {
 }
 
 func runProgramWithInput(program string, args []string, workingDir, stdinData string) error {
-	lpFile, err := windows.UTF16PtrFromString(program)
+	resolvedProgram, err := resolveExecutable(program)
+	if err != nil {
+		return err
+	}
+	lpFile, err := windows.UTF16PtrFromString(resolvedProgram)
 	if err != nil {
 		return fmt.Errorf("failed to convert program path: %v", err)
 	}
@@ -259,7 +264,7 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 			return fmt.Errorf("failed to convert working directory: %v", err)
 		}
 	}
-	commandLine := buildCommandLine(program, args)
+	commandLine := buildCommandLine(resolvedProgram, args)
 	cmdLine, err := windows.UTF16FromString(commandLine)
 	if err != nil {
 		return fmt.Errorf("failed to build command line: %v", err)
@@ -337,6 +342,20 @@ func buildCommandLine(program string, args []string) string {
 		parts = append(parts, quoteArgument(arg))
 	}
 	return strings.Join(parts, " ")
+}
+
+func resolveExecutable(program string) (string, error) {
+	if program == "" {
+		return "", fmt.Errorf("program path is empty")
+	}
+	if strings.ContainsAny(program, "\\/:") {
+		return program, nil
+	}
+	resolved, err := exec.LookPath(program)
+	if err != nil {
+		return "", fmt.Errorf("failed to find %q on PATH: %w", program, err)
+	}
+	return resolved, nil
 }
 
 func quoteArgument(arg string) string {
