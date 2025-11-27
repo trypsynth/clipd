@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -171,6 +172,8 @@ func handle(c net.Conn) {
 }
 
 func setClipboard(s string) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	if r, _, err := openClipboard.Call(0); r == 0 {
 		return err
 	}
@@ -269,10 +272,7 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 	if err != nil {
 		return fmt.Errorf("failed to build command line: %v", err)
 	}
-	sa := windows.SecurityAttributes{
-		Length:        uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
-		InheritHandle: 1,
-	}
+	sa := inheritableSA()
 	var readPipe, writePipe windows.Handle
 	if err := windows.CreatePipe(&readPipe, &writePipe, &sa, 0); err != nil {
 		return fmt.Errorf("failed to create pipe: %v", err)
@@ -288,12 +288,22 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 	if err := windows.SetHandleInformation(writePipe, windows.HANDLE_FLAG_INHERIT, 0); err != nil {
 		return fmt.Errorf("failed to configure pipe handle: %v", err)
 	}
+	stdoutHandle, err := openNullHandle(&sa)
+	if err != nil {
+		return fmt.Errorf("failed to open NUL for stdout: %w", err)
+	}
+	defer closeHandle(&stdoutHandle)
+	stderrHandle, err := openNullHandle(&sa)
+	if err != nil {
+		return fmt.Errorf("failed to open NUL for stderr: %w", err)
+	}
+	defer closeHandle(&stderrHandle)
 	startupInfo := &windows.StartupInfo{
 		Cb:        uint32(unsafe.Sizeof(windows.StartupInfo{})),
 		Flags:     windows.STARTF_USESTDHANDLES,
 		StdInput:  readPipe,
-		StdOutput: windows.Handle(0),
-		StdErr:    windows.Handle(0),
+		StdOutput: stdoutHandle,
+		StdErr:    stderrHandle,
 	}
 	var procInfo windows.ProcessInformation
 	var oldTimeout uintptr
@@ -359,14 +369,7 @@ func resolveExecutable(program string) (string, error) {
 }
 
 func quoteArgument(arg string) string {
-	if arg == "" {
-		return "\"\""
-	}
-	if strings.ContainsAny(arg, " \t\"") {
-		escaped := strings.ReplaceAll(arg, "\"", "\\\"")
-		return "\"" + escaped + "\""
-	}
-	return arg
+	return syscall.EscapeArg(arg)
 }
 
 func allowForegroundForHandle(handle uintptr) {
@@ -379,4 +382,35 @@ func allowForegroundForHandle(handle uintptr) {
 		return
 	}
 	allowSetForegroundWindow.Call(ASFW_ANY)
+}
+
+func inheritableSA() windows.SecurityAttributes {
+	return windows.SecurityAttributes{
+		Length:        uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+		InheritHandle: 1,
+	}
+}
+
+func openNullHandle(sa *windows.SecurityAttributes) (windows.Handle, error) {
+	handle, err := windows.CreateFile(
+		windows.StringToUTF16Ptr("NUL"),
+		windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		sa,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return handle, nil
+}
+
+func closeHandle(h *windows.Handle) {
+	if h == nil || *h == 0 {
+		return
+	}
+	windows.CloseHandle(*h)
+	*h = 0
 }
