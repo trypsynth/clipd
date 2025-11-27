@@ -43,6 +43,7 @@ func main() {
 		RunE:  pipeCmdFunc,
 	}
 	rootCmd.AddCommand(pathCmd, runCmd, pipeCmd)
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
