@@ -1,4 +1,4 @@
-package shared
+package clipd
 
 import (
 	"encoding/json"
@@ -13,23 +13,6 @@ type Config struct {
 	ServerPort    int               `json:"serverPort"`
 	DriveMappings map[string]string `json:"driveMappings,omitempty"`
 	Password      string            `json:"password,omitempty"`
-}
-
-type RequestType int
-
-const (
-	RequestTypeClipboard RequestType = iota
-	RequestTypeRun
-	RequestTypePipe
-)
-
-type Request struct {
-	Type       RequestType `json:"type"`
-	Data       string      `json:"data,omitempty"`
-	Args       []string    `json:"args,omitempty"`
-	WorkingDir string      `json:"workingDir,omitempty"`
-	Password   string      `json:"password,omitempty"`
-	Stdin      string      `json:"stdin,omitempty"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -107,4 +90,20 @@ func expandHomePath(path string) string {
 		return filepath.Join(homeDir, path[2:])
 	}
 	return path
+}
+
+func ResolveArgs(args []string, mappings map[string]string) []string {
+	resolved := make([]string, len(args))
+	for i, arg := range args {
+		resolved[i] = ResolvePath(arg, mappings)
+	}
+	return resolved
+}
+
+func GetWorkingDir(mappings map[string]string) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	return ResolvePath(cwd, mappings), nil
 }

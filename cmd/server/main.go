@@ -12,12 +12,13 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
 	"github.com/getlantern/systray"
-	"github.com/trypsynth/clipd/shared"
+	"github.com/trypsynth/clipd/clipd"
 )
 
 var (
@@ -44,7 +45,7 @@ var (
 	server                   net.Listener
 	serverCtx                context.Context
 	serverCancel             context.CancelFunc
-	config                   *shared.Config
+	config                   *clipd.Config
 )
 
 const (
@@ -73,13 +74,21 @@ type SHELLEXECUTEINFO struct {
 }
 
 func showErrorBox(title, message string) {
-	titlePtr, _ := windows.UTF16PtrFromString(title)
-	messagePtr, _ := windows.UTF16PtrFromString(message)
+	titlePtr, err := windows.UTF16PtrFromString(title)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error converting title: %v\nTitle: %s\nMessage: %s\n", err, title, message)
+		return
+	}
+	messagePtr, err := windows.UTF16PtrFromString(message)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error converting message: %v\nTitle: %s\nMessage: %s\n", err, title, message)
+		return
+	}
 	messageBoxW.Call(0, uintptr(unsafe.Pointer(messagePtr)), uintptr(unsafe.Pointer(titlePtr)), mbIconError)
 }
 
 func main() {
-	cfg, err := shared.LoadConfig()
+	cfg, err := clipd.LoadConfig()
 	if err != nil {
 		showErrorBox("Error", fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
@@ -90,29 +99,29 @@ func main() {
 	systray.Run(onReady, onExit)
 }
 
-func startServer(cfg *shared.Config) {
+func startServer(cfg *clipd.Config) {
 	addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		showErrorBox("Error", fmt.Sprintf("Failed to start server on %s: %v", addr, err))
 		os.Exit(1)
 	}
-	server = ln
 	defer ln.Close()
+	tcpLn := ln.(*net.TCPListener)
 	for {
-		select {
-		case <-serverCtx.Done():
+		tcpLn.SetDeadline(time.Now().Add(1 * time.Second))
+		conn, err := tcpLn.Accept()
+		if serverCtx.Err() != nil {
 			return
-		default:
-			if conn, err := ln.Accept(); err == nil {
-				go handle(conn)
-			} else {
-				if serverCtx.Err() != nil {
-					return
-				}
-				showErrorBox("Error", fmt.Sprintf("Connection accept error: %v", err))
-			}
 		}
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+			showErrorBox("Error", fmt.Sprintf("Connection accept error: %v", err))
+			continue
+		}
+		go handle(conn)
 	}
 }
 
@@ -135,15 +144,12 @@ func onExit() {
 	if serverCancel != nil {
 		serverCancel()
 	}
-	if server != nil {
-		server.Close()
-	}
 	os.Exit(0)
 }
 
 func handle(c net.Conn) {
 	defer c.Close()
-	var req shared.Request
+	var req clipd.Request
 	decoder := json.NewDecoder(c)
 	if err := decoder.Decode(&req); err != nil {
 		showErrorBox("Clipd Server Error", fmt.Sprintf("Failed to decode request: %v", err))
@@ -154,15 +160,15 @@ func handle(c net.Conn) {
 		return
 	}
 	switch req.Type {
-	case shared.RequestTypeClipboard:
+	case clipd.RequestTypeClipboard:
 		if err := setClipboard(req.Data); err != nil {
 			showErrorBox("Error", fmt.Sprintf("Clipboard operation failed: %v", err))
 		}
-	case shared.RequestTypeRun:
+	case clipd.RequestTypeRun:
 		if err := runProgram(req.Data, req.Args, req.WorkingDir); err != nil {
 			showErrorBox("Error", fmt.Sprintf("Program execution failed: %v", err))
 		}
-	case shared.RequestTypePipe:
+	case clipd.RequestTypePipe:
 		if err := runProgramWithInput(req.Data, req.Args, req.WorkingDir, req.Stdin); err != nil {
 			showErrorBox("Error", fmt.Sprintf("Program pipe execution failed: %v", err))
 		}
@@ -197,34 +203,17 @@ func setClipboard(s string) error {
 }
 
 func runProgram(program string, args []string, workingDir string) error {
-	lpFile, err := windows.UTF16PtrFromString(program)
+	lpFile, err := clipd.ToUTF16Ptr(program, "program path")
 	if err != nil {
-		return fmt.Errorf("failed to convert program path: %v", err)
+		return err
 	}
-	var lpParameters *uint16
-	if len(args) > 0 {
-		params := ""
-		for i, arg := range args {
-			if i > 0 {
-				params += " "
-			}
-			if strings.Contains(arg, " ") {
-				params += fmt.Sprintf("\"%s\"", arg)
-			} else {
-				params += arg
-			}
-		}
-		lpParameters, err = windows.UTF16PtrFromString(params)
-		if err != nil {
-			return fmt.Errorf("failed to convert parameters: %v", err)
-		}
+	lpParameters, err := clipd.OptionalUTF16Ptr(buildArgsString(args), "parameters")
+	if err != nil {
+		return err
 	}
-	var lpDirectory *uint16
-	if workingDir != "" {
-		lpDirectory, err = windows.UTF16PtrFromString(workingDir)
-		if err != nil {
-			return fmt.Errorf("failed to convert working directory: %v", err)
-		}
+	lpDirectory, err := clipd.OptionalUTF16Ptr(workingDir, "working directory")
+	if err != nil {
+		return err
 	}
 	sei := SHELLEXECUTEINFO{
 		cbSize:       uint32(unsafe.Sizeof(SHELLEXECUTEINFO{})),
@@ -256,37 +245,28 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 	if err != nil {
 		return err
 	}
-	lpFile, err := windows.UTF16PtrFromString(resolvedProgram)
+	lpFile, err := clipd.ToUTF16Ptr(resolvedProgram, "program path")
 	if err != nil {
-		return fmt.Errorf("failed to convert program path: %v", err)
+		return err
 	}
-	var lpDirectory *uint16
-	if workingDir != "" {
-		lpDirectory, err = windows.UTF16PtrFromString(workingDir)
-		if err != nil {
-			return fmt.Errorf("failed to convert working directory: %v", err)
-		}
+	lpDirectory, err := clipd.OptionalUTF16Ptr(workingDir, "working directory")
+	if err != nil {
+		return err
 	}
 	commandLine := buildCommandLine(resolvedProgram, args)
 	cmdLine, err := windows.UTF16FromString(commandLine)
 	if err != nil {
-		return fmt.Errorf("failed to build command line: %v", err)
+		return fmt.Errorf("failed to build command line: %w", err)
 	}
 	sa := inheritableSA()
 	var readPipe, writePipe windows.Handle
 	if err := windows.CreatePipe(&readPipe, &writePipe, &sa, 0); err != nil {
-		return fmt.Errorf("failed to create pipe: %v", err)
+		return fmt.Errorf("failed to create pipe: %w", err)
 	}
-	defer func() {
-		if readPipe != 0 {
-			windows.CloseHandle(readPipe)
-		}
-		if writePipe != 0 {
-			windows.CloseHandle(writePipe)
-		}
-	}()
+	defer closeHandle(&readPipe)
+	defer closeHandle(&writePipe)
 	if err := windows.SetHandleInformation(writePipe, windows.HANDLE_FLAG_INHERIT, 0); err != nil {
-		return fmt.Errorf("failed to configure pipe handle: %v", err)
+		return fmt.Errorf("failed to configure pipe handle: %w", err)
 	}
 	stdoutHandle, err := openNullHandle(&sa)
 	if err != nil {
@@ -319,7 +299,7 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 	windows.CloseHandle(readPipe)
 	readPipe = 0
 	if err := writeToHandle(writePipe, []byte(stdinData)); err != nil {
-		return fmt.Errorf("failed to write stdin: %v", err)
+		return fmt.Errorf("failed to write stdin: %w", err)
 	}
 	windows.CloseHandle(writePipe)
 	writePipe = 0
@@ -352,6 +332,21 @@ func buildCommandLine(program string, args []string) string {
 		parts = append(parts, quoteArgument(arg))
 	}
 	return strings.Join(parts, " ")
+}
+
+// buildArgsString builds a properly quoted argument string from a slice of arguments.
+func buildArgsString(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for i, arg := range args {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(quoteArgument(arg))
+	}
+	return sb.String()
 }
 
 func resolveExecutable(program string) (string, error) {

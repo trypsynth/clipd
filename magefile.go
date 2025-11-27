@@ -35,6 +35,10 @@ func Clean() error {
 	return os.RemoveAll(binDir)
 }
 
-func Format() error {
+func Fmt() error {
 	return sh.RunV("go", "fmt", "./...")
+}
+
+func Vet() error {
+	return sh.RunV("go", "vet", "./...")
 }

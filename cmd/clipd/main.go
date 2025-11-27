@@ -1,132 +1,90 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"os"
 
-	"github.com/trypsynth/clipd/shared"
+	"github.com/spf13/cobra"
+	"github.com/trypsynth/clipd/clipd"
 )
 
-var cfg *shared.Config
+var cfg *clipd.Config
 
 func main() {
 	var err error
-	cfg, err = shared.LoadConfig()
+	cfg, err = clipd.LoadConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
+	rootCmd := &cobra.Command{
+		Use:   "clipd",
+		Short: "Send clipboard data and run programs on Windows from Linux",
+		Long:  "clipd is a client for sending clipboard data and executing programs on a Windows machine from a Linux environment.",
+		RunE:  clipboardCmd,
+	}
+	pathCmd := &cobra.Command{
+		Use:   "path <path>",
+		Short: "Resolve and print a Windows path",
+		Args:  cobra.ExactArgs(1),
+		RunE:  pathCmdFunc,
+	}
+	runCmd := &cobra.Command{
+		Use:   "run <program> [args...]",
+		Short: "Run a program on the Windows machine",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  runCmdFunc,
+	}
+	pipeCmd := &cobra.Command{
+		Use:   "pipe <program> [args...]",
+		Short: "Pipe stdin to a program on the Windows machine",
+		Args:  cobra.MinimumNArgs(1),
+		RunE:  pipeCmdFunc,
+	}
+	rootCmd.AddCommand(pathCmd, runCmd, pipeCmd)
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func clipboardCmd(cmd *cobra.Command, args []string) error {
+	inputData, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("failed to read stdin: %w", err)
+	}
 	serverAddress := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
-	if len(os.Args) > 1 && os.Args[1] == "path" {
-		if len(os.Args) < 3 {
-			log.Fatal("Usage: clipd path <path>")
-		}
-		path := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
-		fmt.Println(path)
-		return
+	return clipd.SendClipboardRequest(serverAddress, string(inputData), cfg.Password)
+}
+
+func pathCmdFunc(cmd *cobra.Command, args []string) error {
+	path := clipd.ResolvePath(args[0], cfg.DriveMappings)
+	fmt.Println(path)
+	return nil
+}
+
+func runCmdFunc(cmd *cobra.Command, args []string) error {
+	program := clipd.ResolvePath(args[0], cfg.DriveMappings)
+	cmdArgs := clipd.ResolveArgs(args[1:], cfg.DriveMappings)
+	workingDir, err := clipd.GetWorkingDir(cfg.DriveMappings)
+	if err != nil {
+		return err
 	}
-	if len(os.Args) > 1 && os.Args[1] == "run" {
-		if len(os.Args) < 3 {
-			log.Fatal("Usage: clipd run <program> [args...]")
-		}
-		program := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
-		args := make([]string, len(os.Args)-3)
-		for i, arg := range os.Args[3:] {
-			args[i] = shared.ResolvePath(arg, cfg.DriveMappings)
-		}
-		cwd, err := os.Getwd()
-		if err != nil {
-			log.Fatal("Failed to get current working directory: ", err)
-		}
-		workingDir := shared.ResolvePath(cwd, cfg.DriveMappings)
-		if err := sendRunRequest(serverAddress, program, args, workingDir); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "pipe" {
-		if len(os.Args) < 3 {
-			log.Fatal("Usage: clipd pipe <program> [args...]")
-		}
-		program := shared.ResolvePath(os.Args[2], cfg.DriveMappings)
-		args := make([]string, len(os.Args)-3)
-		for i, arg := range os.Args[3:] {
-			args[i] = shared.ResolvePath(arg, cfg.DriveMappings)
-		}
-		cwd, err := os.Getwd()
-		if err != nil {
-			log.Fatal("Failed to get current working directory: ", err)
-		}
-		workingDir := shared.ResolvePath(cwd, cfg.DriveMappings)
-		inputData, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := sendPipeRequest(serverAddress, program, args, workingDir, string(inputData)); err != nil {
-			log.Fatal(err)
-		}
-		return
+	serverAddress := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
+	return clipd.SendRunRequest(serverAddress, program, cmdArgs, workingDir, cfg.Password)
+}
+
+func pipeCmdFunc(cmd *cobra.Command, args []string) error {
+	program := clipd.ResolvePath(args[0], cfg.DriveMappings)
+	cmdArgs := clipd.ResolveArgs(args[1:], cfg.DriveMappings)
+	workingDir, err := clipd.GetWorkingDir(cfg.DriveMappings)
+	if err != nil {
+		return err
 	}
 	inputData, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to read stdin: %w", err)
 	}
-	if err := sendClipboardRequest(serverAddress, string(inputData)); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func sendClipboardRequest(address, data string) error {
-	request := shared.Request{
-		Type:     shared.RequestTypeClipboard,
-		Data:     data,
-		Password: cfg.Password,
-	}
-	return sendRequest(address, request)
-}
-
-func sendRunRequest(address, program string, args []string, workingDir string) error {
-	request := shared.Request{
-		Type:       shared.RequestTypeRun,
-		Data:       program,
-		Args:       args,
-		WorkingDir: workingDir,
-		Password:   cfg.Password,
-	}
-	return sendRequest(address, request)
-}
-
-func sendPipeRequest(address, program string, args []string, workingDir, stdin string) error {
-	request := shared.Request{
-		Type:       shared.RequestTypePipe,
-		Data:       program,
-		Args:       args,
-		WorkingDir: workingDir,
-		Password:   cfg.Password,
-		Stdin:      stdin,
-	}
-	return sendRequest(address, request)
-}
-
-func sendRequest(address string, request shared.Request) error {
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		return fmt.Errorf("error marshalling data: %v", err)
-	}
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return fmt.Errorf("failed to connect to server: %v", err)
-	}
-	defer conn.Close()
-	if _, err := conn.Write(jsonData); err != nil {
-		return fmt.Errorf("error writing to server: %v", err)
-	}
-	buf := make([]byte, 1024)
-	if _, err := conn.Read(buf); err != nil && err != io.EOF {
-		return fmt.Errorf("error reading response from server: %v", err)
-	}
-	return nil
+	serverAddress := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
+	return clipd.SendPipeRequest(serverAddress, program, cmdArgs, workingDir, string(inputData), cfg.Password)
 }
