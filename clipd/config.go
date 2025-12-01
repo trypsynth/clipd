@@ -30,6 +30,11 @@ func LoadConfig() (*Config, error) {
 	if err := json.NewDecoder(configFile).Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+	config.ServerIP = os.ExpandEnv(config.ServerIP)
+	config.Password = os.ExpandEnv(config.Password)
+	for key, value := range config.DriveMappings {
+		config.DriveMappings[key] = os.ExpandEnv(value)
+	}
 	if config.ServerIP == "" {
 		return nil, fmt.Errorf("serverIP is required in config")
 	}
