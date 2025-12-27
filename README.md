@@ -23,7 +23,7 @@ mage Build
 ```
 
 On Linux this builds `bin/clipd`.
-On Windows this builds `bin/clipd.exe` and `bin/server.exe`.
+On Windows this builds `bin/server.exe`.
 
 ## Configuration
 
@@ -71,4 +71,4 @@ printf "text" | clipd pipe clip.exe
 
 ## Notes
 
-Requests are plain JSON over the network, so use it on a trusted network.
+Requests are plain JSON over the network, so use on a trusted network.
