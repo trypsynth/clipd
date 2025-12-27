@@ -22,37 +22,35 @@ import (
 )
 
 var (
-	user32                   = windows.NewLazySystemDLL("user32.dll")
-	kernel32                 = windows.NewLazySystemDLL("kernel32.dll")
-	shell32                  = windows.NewLazySystemDLL("shell32.dll")
-	openClipboard            = user32.NewProc("OpenClipboard")
-	emptyClipboard           = user32.NewProc("EmptyClipboard")
-	setClipboardData         = user32.NewProc("SetClipboardData")
-	closeClipboard           = user32.NewProc("CloseClipboard")
-	globalAlloc              = kernel32.NewProc("GlobalAlloc")
-	globalLock               = kernel32.NewProc("GlobalLock")
-	globalUnlock             = kernel32.NewProc("GlobalUnlock")
-	memcpy                   = kernel32.NewProc("RtlMoveMemory")
-	messageBoxW              = user32.NewProc("MessageBoxW")
-	shellExecuteExW          = shell32.NewProc("ShellExecuteExW")
-	systemParametersInfoW    = user32.NewProc("SystemParametersInfoW")
-	getProcessId             = kernel32.NewProc("GetProcessId")
-	allowSetForegroundWindow = user32.NewProc("AllowSetForegroundWindow")
-	waitForInputIdle         = user32.NewProc("WaitForInputIdle")
-	cfUnicodeText            = uintptr(13)
-	gmemMoveable             = uintptr(2)
-	mbIconError              = uintptr(0x00000010)
-	server                   net.Listener
-	serverCtx                context.Context
-	serverCancel             context.CancelFunc
-	config                   *clipd.Config
+	user32                = windows.NewLazySystemDLL("user32.dll")
+	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
+	shell32               = windows.NewLazySystemDLL("shell32.dll")
+	openClipboard         = user32.NewProc("OpenClipboard")
+	emptyClipboard        = user32.NewProc("EmptyClipboard")
+	setClipboardData      = user32.NewProc("SetClipboardData")
+	closeClipboard        = user32.NewProc("CloseClipboard")
+	globalAlloc           = kernel32.NewProc("GlobalAlloc")
+	globalLock            = kernel32.NewProc("GlobalLock")
+	globalUnlock          = kernel32.NewProc("GlobalUnlock")
+	memcpy                = kernel32.NewProc("RtlMoveMemory")
+	messageBoxW           = user32.NewProc("MessageBoxW")
+	shellExecuteExW       = shell32.NewProc("ShellExecuteExW")
+	systemParametersInfoW = user32.NewProc("SystemParametersInfoW")
+	waitForInputIdle      = user32.NewProc("WaitForInputIdle")
+	cfUnicodeText         = uintptr(13)
+	gmemMoveable          = uintptr(2)
+	mbIconError           = uintptr(0x00000010)
+	server                net.Listener
+	serverCtx             context.Context
+	serverCancel          context.CancelFunc
+	config                *clipd.Config
 )
 
 const (
-	SEE_MASK_NOCLOSEPROCESS   = 0x00000040
-	SEE_MASK_WAITFORINPUTIDLE = 0x00002000
-	SW_SHOWNORMAL             = 1
-	ASFW_ANY                  = 0xFFFFFFFF
+	SEE_MASK_NOCLOSEPROCESS = 0x00000040
+	SW_SHOWNORMAL           = 1
+	SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000
+	SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001
 )
 
 type SHELLEXECUTEINFO struct {
@@ -217,18 +215,18 @@ func runProgram(program string, args []string, workingDir string) error {
 	}
 	sei := SHELLEXECUTEINFO{
 		cbSize:       uint32(unsafe.Sizeof(SHELLEXECUTEINFO{})),
-		fMask:        SEE_MASK_NOCLOSEPROCESS | SEE_MASK_WAITFORINPUTIDLE,
+		fMask:        SEE_MASK_NOCLOSEPROCESS,
 		lpFile:       lpFile,
 		lpParameters: lpParameters,
 		lpDirectory:  lpDirectory,
 		nShow:        SW_SHOWNORMAL,
 	}
 	var oldTimeout uintptr
-	systemParametersInfoW.Call(0x2000, 0, uintptr(unsafe.Pointer(&oldTimeout)), 0)
-	systemParametersInfoW.Call(0x2001, 0, 0, 0)
+	systemParametersInfoW.Call(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, uintptr(unsafe.Pointer(&oldTimeout)), 0)
+	systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, 0, 0)
 	ret, _, err := shellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
-	systemParametersInfoW.Call(0x2001, 0, oldTimeout, 0)
 	if ret == 0 {
+		systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, oldTimeout, 0)
 		return fmt.Errorf("ShellExecuteEx failed: %v", err)
 	}
 	defer func() {
@@ -236,7 +234,8 @@ func runProgram(program string, args []string, workingDir string) error {
 			windows.CloseHandle(windows.Handle(sei.hProcess))
 		}
 	}()
-	allowForegroundForHandle(sei.hProcess)
+	waitForInputIdle.Call(uintptr(sei.hProcess), 5000)
+	systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, oldTimeout, 0)
 	return nil
 }
 
@@ -287,11 +286,11 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 	}
 	var procInfo windows.ProcessInformation
 	var oldTimeout uintptr
-	systemParametersInfoW.Call(0x2000, 0, uintptr(unsafe.Pointer(&oldTimeout)), 0)
-	systemParametersInfoW.Call(0x2001, 0, 0, 0)
+	systemParametersInfoW.Call(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, uintptr(unsafe.Pointer(&oldTimeout)), 0)
+	systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, 0, 0)
 	err = windows.CreateProcess(lpFile, &cmdLine[0], nil, nil, true, 0, nil, lpDirectory, startupInfo, &procInfo)
-	systemParametersInfoW.Call(0x2001, 0, oldTimeout, 0)
 	if err != nil {
+		systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, oldTimeout, 0)
 		return fmt.Errorf("CreateProcess failed: %w", err)
 	}
 	windows.CloseHandle(procInfo.Thread)
@@ -299,12 +298,13 @@ func runProgramWithInput(program string, args []string, workingDir, stdinData st
 	windows.CloseHandle(readPipe)
 	readPipe = 0
 	if err := writeToHandle(writePipe, []byte(stdinData)); err != nil {
+		systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, oldTimeout, 0)
 		return fmt.Errorf("failed to write stdin: %w", err)
 	}
 	windows.CloseHandle(writePipe)
 	writePipe = 0
 	waitForInputIdle.Call(uintptr(procInfo.Process), 5000)
-	allowForegroundForHandle(uintptr(procInfo.Process))
+	systemParametersInfoW.Call(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, oldTimeout, 0)
 	return nil
 }
 
@@ -365,18 +365,6 @@ func resolveExecutable(program string) (string, error) {
 
 func quoteArgument(arg string) string {
 	return syscall.EscapeArg(arg)
-}
-
-func allowForegroundForHandle(handle uintptr) {
-	if handle == 0 {
-		allowSetForegroundWindow.Call(ASFW_ANY)
-		return
-	}
-	if pid, _, _ := getProcessId.Call(handle); pid != 0 {
-		allowSetForegroundWindow.Call(pid)
-		return
-	}
-	allowSetForegroundWindow.Call(ASFW_ANY)
 }
 
 func inheritableSA() windows.SecurityAttributes {
